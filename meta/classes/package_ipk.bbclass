@@ -278,5 +278,3 @@ addtask package_write_ipk after do_packagedata do_package
 
 PACKAGEINDEXDEPS += "opkg-utils-native:do_populate_sysroot"
 PACKAGEINDEXDEPS += "opkg-native:do_populate_sysroot"
-
-do_build[recrdeptask] += "do_package_write_ipk"
