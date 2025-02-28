@@ -22,6 +22,7 @@ import pickle
 from collections import defaultdict
 from collections.abc import Mapping
 import bb.utils
+import bb
 from bb import PrefixLoggerAdapter
 import re
 import shutil
@@ -428,12 +429,16 @@ class Cache(object):
                 self.logger.debug2("Checking if %s exists: %r", cachefile, cache_exists)
                 cache_ok = cache_ok and cache_exists
                 cache_class.init_cacheData(self)
+
         if cache_ok:
+            bb.server.process.serverlog("PrepareCache 2.1")
             loaded = self.load_cachefile(progress)
         elif os.path.isfile(self.cachefile):
             self.logger.info("Out of date cache found, rebuilding...")
         else:
             self.logger.debug("Cache file %s not found, building..." % self.cachefile)
+
+        bb.server.process.serverlog("PrepareCache 3")
 
         # We don't use the symlink, its just for debugging convinience
         if self.mc:
@@ -505,8 +510,11 @@ class Cache(object):
                     else:
                         self.depends_cache[key] = [value]
                     # only fire events on even percentage boundaries
+                    bb.server.process.serverlog("LoadCache 3")
+
                     current_progress = cachefile.tell() + previous_progress
                     progress(cachefile.tell() + previous_progress)
+                    bb.server.process.serverlog("LoadCache 4")
 
                 previous_progress += current_progress
 
@@ -674,6 +682,7 @@ class Cache(object):
         Save the cache
         Called from the parser when complete (or exiting)
         """
+
         if self.cacheclean:
             self.logger.debug2("Cache is clean, not saving.")
             return
@@ -759,8 +768,11 @@ class MulticonfigCache(Mapping):
 
         for c in self.__caches.values():
             SiggenRecipeInfo.reset()
+            bb.server.process.serverlog("MulticonfigCache initC2")
             loaded += c.prepare_cache(progress)
+            bb.server.process.serverlog("MulticonfigCache initC3")
             previous_progress = current_progress
+
 
         # Note: depends cache number is corresponding to the parsing file numbers.
         # The same file has several caches, still regarded as one item in the cache

@@ -26,6 +26,8 @@ import json
 import pickle
 import codecs
 import hashserv
+import faulthandler
+import traceback
 
 logger      = logging.getLogger("BitBake")
 collectlog  = logging.getLogger("BitBake.Collection")
@@ -1630,6 +1632,7 @@ class BBCooker:
         self.state = State.PARSING
 
         if not self.parser.parse_next():
+            bb.server.process.serverlog("Parsing complete")
             collectlog.debug("parsing complete")
             if self.parser.error:
                 raise bb.BBHandledException()
@@ -2004,12 +2007,16 @@ class Parser(multiprocessing.Process):
         self.signal_threadlock = threading.Lock()
 
     def catch_sig(self, signum, frame):
+        bb.server.process.serverlog("Catch signal %s" % signum)
+        bb.server.process.serverlog(traceback.format_exc())
         if self.queue_signals:
             self.signal_received.append(signum)
         else:
             self.handle_sig(signum, frame)
 
     def handle_sig(self, signum, frame):
+        bb.server.process.serverlog("Handle signal %s" % signum)
+        bb.server.process.serverlog(traceback.format_exc())
         if signum == signal.SIGTERM:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             os.kill(os.getpid(), signal.SIGTERM)
@@ -2048,6 +2055,9 @@ class Parser(multiprocessing.Process):
         bb.utils.set_process_name(multiprocessing.current_process().name)
         multiprocessing.util.Finalize(None, bb.codeparser.parser_cache_save, exitpriority=1)
         multiprocessing.util.Finalize(None, bb.fetch.fetcher_parse_save, exitpriority=1)
+        faulthandler.enable(all_threads=True)
+
+        bb.server.process.serverlog("Parsing enter %s" % os.getpid())
 
         pending = []
         havejobs = True
@@ -2112,6 +2122,8 @@ class CookerParser(object):
         self.cfghash = cooker.databuilder.data_hash
         self.cfgbuilder = cooker.databuilder
 
+        bb.server.process.serverlog("CookerParser init")
+
         # Accounting statistics
         self.parsed = 0
         self.cached = 0
@@ -2124,7 +2136,12 @@ class CookerParser(object):
         self.current = 0
         self.process_names = []
 
+        bb.server.process.serverlog("CookerParser initA")
+
         self.bb_caches = bb.cache.MulticonfigCache(self.cfgbuilder, self.cfghash, cooker.caches_array)
+
+        bb.server.process.serverlog("CookerParser initB")        
+        
         self.fromcache = set()
         self.willparse = set()
 
@@ -2133,6 +2150,7 @@ class CookerParser(object):
 
         bb.event.fire(bb.event.CheckCacheValidityStarted(validate_count), self.cfgdata)
         num_validated = 0
+
         for mc in self.cooker.multiconfigs:
             for filename in self.mcfilelist[mc]:
                 appends = self.cooker.collections[mc].get_file_appends(filename)
@@ -2154,13 +2172,18 @@ class CookerParser(object):
                                  multiprocessing.cpu_count()), self.toparse)
 
         bb.cache.SiggenRecipeInfo.reset()
+
         self.start()
         self.haveshutdown = False
         self.syncthread = None
+        
+        bb.server.process.serverlog("CookerParser init2")
 
     def start(self):
         self.results = self.load_cached()
         self.processes = []
+        bb.server.process.serverlog("CookerParser start")
+
         if self.toparse:
             bb.event.fire(bb.event.ParseStarted(self.toparse), self.cfgdata)
 
@@ -2179,7 +2202,9 @@ class CookerParser(object):
 
             self.results = itertools.chain(self.results, self.parse_generator())
 
+
     def shutdown(self, clean=True, eventmsg="Parsing halted due to errors"):
+        bb.server.process.serverlog("Parsing shutdown")
         if not self.toparse:
             return
         if self.haveshutdown:
@@ -2215,6 +2240,8 @@ class CookerParser(object):
 
         self.parser_quit.set()
 
+        bb.server.process.serverlog("Parsing shutdown2")
+
         for process in self.processes:
             process.join(0.5)
 
@@ -2227,6 +2254,7 @@ class CookerParser(object):
 
         for process in self.processes:
             if process.exitcode is None:
+                bb.server.process.serverlog("Sending Term to a process")
                 process.terminate()
 
         for process in self.processes:
@@ -2294,6 +2322,7 @@ class CookerParser(object):
             if parsed is None:
                 # Timeout, loop back through the main loop
                 return True
+
 
         except StopIteration:
             self.shutdown()
